@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, String, DateTime, create_engine
+from sqlalchemy import Column, String, DateTime, Integer, create_engine, SMALLINT
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime
@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 import os
 import logging
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import List
 
 # ログの設定
 logging.basicConfig(level=logging.INFO)
@@ -27,8 +28,8 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_SSL_CA = os.getenv("DB_SSL_CA")
 
 # MySQL接続URLを構築
+logger.info("Connecting to database...")  # パスワードを表示しない
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}?ssl_ca={DB_SSL_CA}"
-print(DATABASE_URL)
 
 if not all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME, DB_SSL_CA]):
     raise ValueError("Missing database configuration environment variables")
@@ -60,7 +61,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ユーザーモデルの定義
 class User(Base):
     __tablename__ = "m_company_users"
@@ -78,7 +78,7 @@ class Facility(Base):
     facility_id = Column(String(50), primary_key=True, nullable=False)
     facility_name = Column(String(100), nullable=False)
     facility_type = Column(String(50), nullable=False)
-    capacity = Column(String(50), nullable=False)
+    capacity = Column(SMALLINT, nullable=False)
 
 
 # Pydanticモデル（APIレスポンス用）
@@ -96,7 +96,7 @@ class FacilityResponse(BaseModel):
     facility_id: str
     facility_name: str
     facility_type: str
-    capacity: str
+    capacity: int
 
 # データベースセッションを取得する関数
 def get_db():
@@ -132,6 +132,20 @@ def read_user(user_id: str, db: Session = Depends(get_db)):
 def read_facility(facility_id: str , db: Session = Depends(get_db)):
     """指定された設備IDの情報を取得"""
     facility: Optional[Facility] = db.query(Facility).filter(Facility.facility_id == facility_id).first()
-    if not facility_id:
-        raise HTTPException(status_code=400, detail="Invalid facility_id")
+    if not facility:
+        raise HTTPException(status_code=404, detail="Facility not found")  # 修正
     return facility  # Pydanticが自動的にJSONへ変換
+
+# すべての設備情報を取得するエンドポイント
+@app.get("/facilities", response_model=List[FacilityResponse])
+def read_facilities(db: Session = Depends(get_db)):
+    facilities = db.query(Facility).all()
+    return [
+        {
+            "facility_id": f.facility_id,
+            "facility_name": f.facility_name,
+            "facility_type": f.facility_type,
+            "capacity": str(f.capacity),  # ✅ `int` → `str` に変換
+        }
+        for f in facilities
+    ]
