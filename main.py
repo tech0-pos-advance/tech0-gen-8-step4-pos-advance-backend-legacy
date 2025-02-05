@@ -46,7 +46,7 @@ except SQLAlchemyError as e:
 Base = declarative_base()
 
 # CORSの許可設定
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,https://pos-advance-frontend-legacy-bdaxawereeeng2bm.canadacentral-01.azurewebsites.net/")
 ALLOWED_ORIGINS_LIST = ALLOWED_ORIGINS.split(",")
 
 # FastAPIアプリの作成
