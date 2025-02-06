@@ -130,6 +130,8 @@ def get_db():
 def read_root():
     """アプリのルートエンドポイント"""
     print("DB_SSL_CA",DB_SSL_CA)
+    print("DATABASE_URL",DATABASE_URL)
+
     return {"message": "M不動産の社内システムです。"}
 
 # ユーザー情報を取得するエンドポイント
