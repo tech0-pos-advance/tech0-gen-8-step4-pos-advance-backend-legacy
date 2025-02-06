@@ -16,6 +16,13 @@ from typing import List
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 環境変数をログに出力（セキュリティ上、パスワードなどを除外）
+logger.info("=== 環境変数の確認 ===")
+for key, value in os.environ.items():
+    if "PASSWORD" not in key and "SECRET" not in key:  # セキュリティ対策
+        logger.info(f"{key}: {value}")
+logger.info("======================")
+
 # 環境変数の読み込み
 load_dotenv()  # .env をデフォルトとして読み込む
 load_dotenv(dotenv_path=".env.local", override=True)  # .env.local があれば上書き
@@ -28,7 +35,6 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_SSL_CA = os.getenv("DB_SSL_CA")
 
 # MySQL接続URLを構築
-logger.info("Connecting to database...")  # パスワードを表示しない
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}?ssl_ca={DB_SSL_CA}"
 
 if not all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME, DB_SSL_CA]):
