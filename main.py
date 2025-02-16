@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, DateTime, Integer, create_engine, SMALLINT
@@ -142,6 +142,39 @@ def read_user(user_id: str, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user  # Pydanticが自動的にJSONへ変換
+
+# 施設検索
+@app.get("/facilities/search", response_model=List[FacilityResponse])
+def search_facilities(
+    facility_name: Optional[str] = Query(None, description="検索する施設名"),
+    facility_type: Optional[str] = Query(None, description="検索する施設のタイプ"),
+    db: Session = Depends(get_db)
+):
+    """施設名・施設タイプで検索する"""
+    # 動的にSQLのWHERE句を構築
+    sql = "SELECT * FROM m_company_facilities WHERE 1=1"  # 初期状態は常に真にしておく
+    
+    # パラメータに応じて条件を追加
+    params = {}
+    if facility_name:
+        sql += " AND facility_name LIKE :facility_name"
+        params["facility_name"] = f"%{facility_name}%"  # 部分一致のためLIKEを使用
+    
+    if facility_type:
+        sql += " AND facility_type = :facility_type"
+        params["facility_type"] = facility_type
+
+    # ログ: SQLクエリとパラメータを表示
+    logger.info(f"Executing SQL: {sql}")
+    logger.info(f"With parameters: {params}")
+    
+    # SQL実行
+    # try:
+    result = db.execute(text(sql), params).fetchall()
+
+    logger.info(f"With parameters: {result}")
+        
+    return result
 
 # 設備情報を取得するエンドポイント
 @app.get("/facilities/{facility_id}", response_model=FacilityResponse)
