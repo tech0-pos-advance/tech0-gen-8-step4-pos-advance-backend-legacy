@@ -1,9 +1,10 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query #追記
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, String, DateTime, Integer, create_engine, SMALLINT
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql import text  # 追記
 from datetime import datetime
 from dotenv import load_dotenv
 import os
@@ -169,7 +170,6 @@ def search_facilities(
     logger.info(f"With parameters: {params}")
     
     # SQL実行
-    # try:
     result = db.execute(text(sql), params).fetchall()
 
     logger.info(f"With parameters: {result}")
