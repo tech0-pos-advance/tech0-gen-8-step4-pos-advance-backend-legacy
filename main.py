@@ -9,9 +9,10 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 import logging
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Optional, Union # 追記2
+from pydantic import BaseModel, Field, root_validator # 追記2
 from typing import List
+import json  # 追記2
 
 # ログの設定
 logging.basicConfig(level=logging.INFO)
@@ -111,6 +112,28 @@ class FacilityResponse(BaseModel):
     facility_name: str
     facility_type: str
     capacity: int
+    
+class FacilitySearch(FacilityResponse):
+    location: str
+    equipment: Union[dict, list]
+    management_type: str  # 'internal' または 'external' の値を持つ
+    external_id: Optional[str] = None  # 外部ID（任意）
+    created_at: datetime  # 作成日時
+
+    @root_validator(pre=True)
+    def parse_equipment(cls, values):
+        # equipmentフィールドが文字列であれば、辞書に変換
+        if 'equipment' in values:
+            equipment = values['equipment']
+            if isinstance(equipment, str):  # 文字列の場合、JSONに変換
+                values['equipment'] = json.loads(equipment)
+        return values
+
+    class Config:
+        # PydanticがJSONやdatetimeの型を適切に扱うための設定
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+        }
 
 # データベースセッションを取得する関数
 def get_db():
@@ -145,7 +168,7 @@ def read_user(user_id: str, db: Session = Depends(get_db)):
     return user  # Pydanticが自動的にJSONへ変換
 
 # 施設検索
-@app.get("/facilities/search", response_model=List[FacilityResponse])
+@app.get("/facilities/search", response_model=List[FacilitySearch])
 def search_facilities(
     facility_name: Optional[str] = Query(None, description="検索する施設名"),
     facility_type: Optional[str] = Query(None, description="検索する施設のタイプ"),
@@ -172,9 +195,25 @@ def search_facilities(
     # SQL実行
     result = db.execute(text(sql), params).fetchall()
 
-    logger.info(f"With parameters: {result}")
+    logger.info(f"result: {result}")
         
-    return result
+    # 結果をExtendedFacilityResponseに変換して返す
+    facilities = [
+        FacilitySearch(
+            facility_id=row[0],
+            facility_name=row[1],
+            facility_type=row[2],
+            capacity=row[3],
+            location=row[4],
+            equipment=row[5],  # equipmentはJSON形式
+            management_type=row[6],
+            external_id=row[7],
+            created_at=row[8]
+        )
+        for row in result
+    ]
+        
+    return facilities
 
 # 設備情報を取得するエンドポイント
 @app.get("/facilities/{facility_id}", response_model=FacilityResponse)
