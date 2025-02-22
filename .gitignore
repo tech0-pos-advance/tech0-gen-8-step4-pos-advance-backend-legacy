@@ -87,3 +87,6 @@ cython_debug/
 celerybeat-schedule
 celerybeat.pid
 .pypirc
+
+Dockerfile
+SELECT
