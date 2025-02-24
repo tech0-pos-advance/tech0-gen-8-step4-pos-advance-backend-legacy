@@ -281,3 +281,36 @@ def create_reservation(request: ReservationRequest, db: Session = Depends(get_db
         status="success",
         message="予約が完了しました"
     )
+
+# 予約を削除するエンドポイント
+@app.delete("/reservations/{reservation_id}", response_model=ReservationResponse)
+def delete_reservation(reservation_id: int, db: Session = Depends(get_db)):
+    """
+    指定されたreservation_idに関連する予約を削除する
+    フロントエンドからreservation_idが渡される
+    """
+    # 予約IDに関連するレコードをデータベースから検索
+    reservation = db.query(Reservation).filter(Reservation.reservation_id == reservation_id).first()
+    
+    # 予約が見つからない場合は404エラーを返す
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+    
+    # 施設名を取得するためにfacility_idを使ってFacilityテーブルを検索
+    facility = db.query(Facility).filter(Facility.facility_id == reservation.facility_id).first()
+    if not facility:
+        raise HTTPException(status_code=404, detail="Facility not found")  # 施設が見つからない場合のエラーハンドリング
+    
+    # 予約を削除する
+    db.delete(reservation)
+    db.commit()  # 変更をデータベースに反映
+    
+    # レスポンス用のデータを準備
+    return ReservationResponse(
+        reservation_id=reservation.reservation_id,
+        facility_name=facility.facility_name,  # Facilityテーブルから施設名を取得
+        reservation_date=reservation.start_time.date().strftime('%Y-%m-%d'),
+        time_slot=f"{reservation.start_time.strftime('%H:%M')}-{reservation.end_time.strftime('%H:%M')}",
+        status="success",
+        message="予約を削除しました"
+    )
