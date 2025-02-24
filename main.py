@@ -167,37 +167,53 @@ def read_user(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return user  # Pydanticが自動的にJSONへ変換
 
-# 施設検索
-@app.get("/facilities/search", response_model=List[FacilitySearch])
+# 施設検索エンドポイント
+@app.get("/facilities/search")
 def search_facilities(
     facility_name: Optional[str] = Query(None, description="検索する施設名"),
-    facility_type: Optional[str] = Query(None, description="検索する施設のタイプ"),
+    facility_type: Optional[str] = Query(None, description="検索する施設のタイプ（完全一致）"),
+    location: Optional[str] = Query(None, description="検索する施設の場所（部分一致）"),
+    capacity: Optional[int] = Query(None, description="この人数以上のキャパシティ"),
+    limit: Optional[int] = Query(10, description="取得する件数（デフォルト10件）"),
+    offset: Optional[int] = Query(0, description="スキップする件数（デフォルト0件）"),
     db: Session = Depends(get_db)
 ):
-    """施設名・施設タイプで検索する"""
-    # 動的にSQLのWHERE句を構築
-    sql = "SELECT * FROM m_company_facilities WHERE 1=1"  # 初期状態は常に真にしておく
-    
-    # パラメータに応じて条件を追加
+    """施設名・施設タイプ・場所・キャパシティで検索する（ページネーションあり）"""
+    sql = "SELECT * FROM m_company_facilities WHERE 1=1"
     params = {}
+
     if facility_name:
         sql += " AND facility_name LIKE :facility_name"
-        params["facility_name"] = f"%{facility_name}%"  # 部分一致のためLIKEを使用
-    
+        params["facility_name"] = f"%{facility_name}%"
+
     if facility_type:
         sql += " AND facility_type = :facility_type"
         params["facility_type"] = facility_type
 
-    # ログ: SQLクエリとパラメータを表示
+    if location:
+        sql += " AND location LIKE :location"
+        params["location"] = f"%{location}%"
+
+    if capacity:
+        sql += " AND capacity >= :capacity"
+        params["capacity"] = capacity
+
+    # ページネーションを適用
+    sql += " LIMIT :limit OFFSET :offset"
+    params["limit"] = limit
+    params["offset"] = offset
+
     logger.info(f"Executing SQL: {sql}")
     logger.info(f"With parameters: {params}")
-    
-    # SQL実行
+
     result = db.execute(text(sql), params).fetchall()
 
-    logger.info(f"result: {result}")
-        
-    # 結果をExtendedFacilityResponseに変換して返す
+    if not result:
+        return {
+            "status": "success",
+            "message": "No facilities found matching the search criteria."
+        }
+
     facilities = [
         FacilitySearch(
             facility_id=row[0],
@@ -205,15 +221,19 @@ def search_facilities(
             facility_type=row[2],
             capacity=row[3],
             location=row[4],
-            equipment=row[5],  # equipmentはJSON形式
+            equipment=json.loads(row[5]) if isinstance(row[5], str) else row[5],  # JSON変換
             management_type=row[6],
             external_id=row[7],
             created_at=row[8]
         )
         for row in result
     ]
-        
-    return facilities
+
+    return {
+        "status": "success",
+        "data": facilities
+    }
+
 
 # 設備情報を取得するエンドポイント
 @app.get("/facilities/{facility_id}", response_model=FacilityResponse)
