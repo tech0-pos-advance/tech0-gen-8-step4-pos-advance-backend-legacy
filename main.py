@@ -168,9 +168,8 @@ def read_user(user_id: str, db: Session = Depends(get_db)):
     return user  # Pydanticが自動的にJSONへ変換
 
 # 施設検索エンドポイント
-@app.get("/facilities/search")
+@app.get("/facilities")
 def search_facilities(
-    facility_name: Optional[str] = Query(None, description="検索する施設名"),
     facility_type: Optional[str] = Query(None, description="検索する施設のタイプ（完全一致）"),
     location: Optional[str] = Query(None, description="検索する施設の場所（部分一致）"),
     capacity: Optional[int] = Query(None, description="この人数以上のキャパシティ"),
@@ -181,10 +180,6 @@ def search_facilities(
     """施設名・施設タイプ・場所・キャパシティで検索する（ページネーションあり）"""
     sql = "SELECT * FROM m_company_facilities WHERE 1=1"
     params = {}
-
-    if facility_name:
-        sql += " AND facility_name LIKE :facility_name"
-        params["facility_name"] = f"%{facility_name}%"
 
     if facility_type:
         sql += " AND facility_type = :facility_type"
