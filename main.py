@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, Query #追記
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, String, DateTime, Integer, create_engine, SMALLINT
+from sqlalchemy import Column, String, DateTime, Integer, create_engine, SMALLINT, SmallInteger
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text  # 追記
@@ -12,6 +12,7 @@ import logging
 from typing import Optional
 from pydantic import BaseModel, Field
 from typing import List
+from sqlalchemy import and_
 
 # ログの設定
 logging.basicConfig(level=logging.INFO)
@@ -94,6 +95,20 @@ class Facility(Base):
     facility_type = Column(String(50), nullable=False)
     capacity = Column(SMALLINT, nullable=False)
 
+from sqlalchemy import Column, String, Integer, DateTime, SmallInteger
+
+class Reservation(Base):
+    __tablename__ = "t_company_facility_reservations"
+
+    reservation_id = Column(Integer, primary_key=True, autoincrement=True)  # 自動インクリメントを追加
+    user_id = Column(String(50), nullable=False)
+    facility_id = Column(String(50), nullable=False)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    attendee_count = Column(SmallInteger, nullable=False)
+    created_date = Column(DateTime, nullable=False)
+
+
 
 # Pydanticモデル（APIレスポンス用）
 # ユーザー情報のレスポンスモデル
@@ -111,6 +126,23 @@ class FacilityResponse(BaseModel):
     facility_name: str
     facility_type: str
     capacity: int
+
+# Pydanticモデル（フロントエンドからのリクエストデータ）
+class ReservationRequest(BaseModel):
+    facility_id: str
+    start_time: datetime
+    end_time: datetime
+    user_id: str
+    attendee_count: int
+
+# 予約レスポンス用のPydanticモデル
+class ReservationResponse(BaseModel):
+    reservation_id: int
+    facility_name: str
+    reservation_date: str
+    time_slot: str
+    status: str
+    message: str
 
 # データベースセッションを取得する関数
 def get_db():
@@ -198,3 +230,54 @@ def read_facilities(db: Session = Depends(get_db)):
         }
         for f in facilities
     ]
+
+# 予約を処理するエンドポイント
+@app.post("/reservations", response_model=ReservationResponse)
+def create_reservation(request: ReservationRequest, db: Session = Depends(get_db)):
+    # 1. 予約時間が過去ではないか確認
+    if request.start_time < datetime.now():
+        raise HTTPException(status_code=400, detail="予約時間は過去に設定できません。")
+    
+    # 2. 同じ施設で重複予約がないか確認
+    existing_reservation = db.query(Reservation).filter(
+        and_(
+            Reservation.facility_id == request.facility_id,
+            Reservation.start_time < request.end_time,
+            Reservation.end_time > request.start_time
+        )
+    ).first()
+    
+    if existing_reservation:
+        raise HTTPException(status_code=400, detail="この施設はすでに予約されています")
+    
+    # 3. 施設名を取得
+    facility = db.query(Facility).filter(Facility.facility_id == request.facility_id).first()
+    if not facility:
+        raise HTTPException(status_code=404, detail="施設が見つかりません")
+
+    # 4. 予約の作成
+    new_reservation = Reservation(
+        user_id=request.user_id,
+        facility_id=request.facility_id,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        attendee_count=request.attendee_count,
+        created_date=datetime.now()
+    )
+    
+    db.add(new_reservation)
+    db.commit()
+    db.refresh(new_reservation)
+    
+    # 5. レスポンスデータを作成
+    reservation_date = request.start_time.date().strftime('%Y-%m-%d')
+    time_slot = f"{request.start_time.strftime('%H:%M')}-{request.end_time.strftime('%H:%M')}"
+    
+    return ReservationResponse(
+        reservation_id=new_reservation.reservation_id,
+        facility_name=facility.facility_name,
+        reservation_date=reservation_date,
+        time_slot=time_slot,
+        status="success",
+        message="予約が完了しました"
+    )
