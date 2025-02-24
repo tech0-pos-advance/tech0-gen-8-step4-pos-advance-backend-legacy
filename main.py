@@ -178,23 +178,27 @@ def search_facilities(
     db: Session = Depends(get_db)
 ):
     """施設名・施設タイプ・場所・キャパシティで検索する（ページネーションあり）"""
-    sql = "SELECT * FROM m_company_facilities WHERE 1=1"
+    sql_where = "WHERE 1=1"
     params = {}
 
     if facility_type:
-        sql += " AND facility_type = :facility_type"
+        sql_where += " AND facility_type = :facility_type"
         params["facility_type"] = facility_type
 
     if location:
-        sql += " AND location LIKE :location"
+        sql_where += " AND location LIKE :location"
         params["location"] = f"%{location}%"
 
     if capacity:
-        sql += " AND capacity >= :capacity"
+        sql_where += " AND capacity >= :capacity"
         params["capacity"] = capacity
 
-    # ページネーションを適用
-    sql += " LIMIT :limit OFFSET :offset"
+    # **1. 件数を取得**
+    count_sql = f"SELECT COUNT(*) FROM m_company_facilities {sql_where}"
+    total_count = db.execute(text(count_sql), params).scalar()
+
+    # **2. データ取得**
+    sql = f"SELECT * FROM m_company_facilities {sql_where} LIMIT :limit OFFSET :offset"
     params["limit"] = limit
     params["offset"] = offset
 
@@ -203,29 +207,37 @@ def search_facilities(
 
     result = db.execute(text(sql), params).fetchall()
 
+    # **3. 結果がない場合**
     if not result:
         return {
             "status": "success",
-            "message": "No facilities found matching the search criteria."
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
+            "message": "No facilities found matching the search criteria.",
+            "data": []
         }
 
     facilities = [
-        FacilitySearch(
-            facility_id=row[0],
-            facility_name=row[1],
-            facility_type=row[2],
-            capacity=row[3],
-            location=row[4],
-            equipment=json.loads(row[5]) if isinstance(row[5], str) else row[5],  # JSON変換
-            management_type=row[6],
-            external_id=row[7],
-            created_at=row[8]
-        )
+        {
+            "facility_id": row[0],
+            "facility_name": row[1],
+            "facility_type": row[2],
+            "capacity": row[3],
+            "location": row[4],
+            "equipment": json.loads(row[5]) if isinstance(row[5], str) else row[5],
+            "management_type": row[6],
+            "external_id": row[7],
+            "created_at": row[8]
+        }
         for row in result
     ]
 
     return {
         "status": "success",
+        "total_count": total_count, 
+        "limit": limit,
+        "offset": offset,
         "data": facilities
     }
 
