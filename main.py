@@ -9,9 +9,10 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 import logging
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Optional, Union # 追記2
+from pydantic import BaseModel, Field, root_validator # 追記2
 from typing import List
+import json  # 追記2
 from sqlalchemy import and_
 
 # ログの設定
@@ -177,7 +178,7 @@ def read_user(user_id: str, db: Session = Depends(get_db)):
     return user  # Pydanticが自動的にJSONへ変換
 
 # 施設検索
-@app.get("/facilities/search", response_model=List[FacilityResponse])
+@app.get("/facilities/search", response_model=List[FacilitySearch])
 def search_facilities(
     facility_name: Optional[str] = Query(None, description="検索する施設名"),
     facility_type: Optional[str] = Query(None, description="検索する施設のタイプ"),
@@ -204,9 +205,25 @@ def search_facilities(
     # SQL実行
     result = db.execute(text(sql), params).fetchall()
 
-    logger.info(f"With parameters: {result}")
+    logger.info(f"result: {result}")
         
-    return result
+    # 結果をExtendedFacilityResponseに変換して返す
+    facilities = [
+        FacilitySearch(
+            facility_id=row[0],
+            facility_name=row[1],
+            facility_type=row[2],
+            capacity=row[3],
+            location=row[4],
+            equipment=row[5],  # equipmentはJSON形式
+            management_type=row[6],
+            external_id=row[7],
+            created_at=row[8]
+        )
+        for row in result
+    ]
+        
+    return facilities
 
 # 設備情報を取得するエンドポイント
 @app.get("/facilities/{facility_id}", response_model=FacilityResponse)
