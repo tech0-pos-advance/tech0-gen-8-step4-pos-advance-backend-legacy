@@ -90,3 +90,5 @@ celerybeat.pid
 
 Dockerfile
 SELECT
+swagger
+/swagger

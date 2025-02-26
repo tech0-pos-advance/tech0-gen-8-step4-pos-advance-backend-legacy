@@ -206,8 +206,8 @@ def read_facilities(
         params["facility_type"] = facility_type
 
     if location:
-        sql_where += " AND location LIKE :location"
-        params["location"] = f"%{location}%"
+        sql_where += " AND MATCH(location) AGAINST(:location IN BOOLEAN MODE)"
+        params["location"] = f"{location}*"  # Indexを利用
 
     if capacity:
         sql_where += " AND capacity >= :capacity"
