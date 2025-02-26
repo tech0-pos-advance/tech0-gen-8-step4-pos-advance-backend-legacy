@@ -345,3 +345,62 @@ def delete_reservation(reservation_id: int, db: Session = Depends(get_db)):
         status="success",
         message="予約を削除しました"
     )
+
+@app.put("/reservations/{reservation_id}", response_model=ReservationResponse)
+def update_reservation(
+    reservation_id: int, 
+    request: ReservationRequest, 
+    db: Session = Depends(get_db)
+):
+    """
+    指定されたreservation_idに関連する予約内容を更新する
+    フロントエンドからreservation_idと変更内容が渡される
+    """
+    # 予約IDに関連するレコードをデータベースから検索
+    reservation = db.query(Reservation).filter(Reservation.reservation_id == reservation_id).first()
+    
+    # 予約が見つからない場合は404エラーを返す
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+    
+    # 1. 予約時間が過去ではないか確認
+    if request.start_time < datetime.now():
+        raise HTTPException(status_code=400, detail="予約時間は過去に設定できません。")
+    
+    # 2. 同じ施設で重複予約がないか確認
+    existing_reservation = db.query(Reservation).filter(
+        and_(
+            Reservation.facility_id == request.facility_id,
+            Reservation.start_time < request.end_time,
+            Reservation.end_time > request.start_time,
+            Reservation.reservation_id != reservation_id  # 自身の予約との重複を避ける
+        )
+    ).first()
+    
+    if existing_reservation:
+        raise HTTPException(status_code=400, detail="この施設はすでに予約されています")
+
+    # 3. 施設名を取得
+    facility = db.query(Facility).filter(Facility.facility_id == request.facility_id).first()
+    if not facility:
+        raise HTTPException(status_code=404, detail="施設が見つかりません")
+
+    # 4. 予約の更新
+    reservation.start_time = request.start_time
+    reservation.end_time = request.end_time
+    reservation.attendee_count = request.attendee_count
+    db.commit()  # 変更をデータベースに反映
+    db.refresh(reservation)  # 最新のデータを取得
+
+    # 5. 更新後のレスポンスデータを作成
+    reservation_date = reservation.start_time.date().strftime('%Y-%m-%d')
+    time_slot = f"{reservation.start_time.strftime('%H:%M')}-{reservation.end_time.strftime('%H:%M')}"
+    
+    return ReservationResponse(
+        reservation_id=reservation.reservation_id,
+        facility_name=facility.facility_name,
+        reservation_date=reservation_date,
+        time_slot=time_slot,
+        status="success",
+        message="予約が更新されました"
+    )
