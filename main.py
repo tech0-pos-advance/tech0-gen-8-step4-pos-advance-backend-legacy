@@ -9,9 +9,10 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 import logging
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Optional, Union # 追記2
+from pydantic import BaseModel, Field, root_validator # 追記2
 from typing import List
+import json  # 追記2
 from sqlalchemy import and_
 
 # ログの設定
@@ -176,37 +177,6 @@ def read_user(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return user  # Pydanticが自動的にJSONへ変換
 
-# 施設検索
-@app.get("/facilities/search", response_model=List[FacilityResponse])
-def search_facilities(
-    facility_name: Optional[str] = Query(None, description="検索する施設名"),
-    facility_type: Optional[str] = Query(None, description="検索する施設のタイプ"),
-    db: Session = Depends(get_db)
-):
-    """施設名・施設タイプで検索する"""
-    # 動的にSQLのWHERE句を構築
-    sql = "SELECT * FROM m_company_facilities WHERE 1=1"  # 初期状態は常に真にしておく
-    
-    # パラメータに応じて条件を追加
-    params = {}
-    if facility_name:
-        sql += " AND facility_name LIKE :facility_name"
-        params["facility_name"] = f"%{facility_name}%"  # 部分一致のためLIKEを使用
-    
-    if facility_type:
-        sql += " AND facility_type = :facility_type"
-        params["facility_type"] = facility_type
-
-    # ログ: SQLクエリとパラメータを表示
-    logger.info(f"Executing SQL: {sql}")
-    logger.info(f"With parameters: {params}")
-    
-    # SQL実行
-    result = db.execute(text(sql), params).fetchall()
-
-    logger.info(f"With parameters: {result}")
-        
-    return result
 
 # 設備情報を取得するエンドポイント
 @app.get("/facilities/{facility_id}", response_model=FacilityResponse)
@@ -218,18 +188,79 @@ def read_facility(facility_id: str , db: Session = Depends(get_db)):
     return facility  # Pydanticが自動的にJSONへ変換
 
 # すべての設備情報を取得するエンドポイント
-@app.get("/facilities", response_model=List[FacilityResponse])
-def read_facilities(db: Session = Depends(get_db)):
-    facilities = db.query(Facility).all()
-    return [
-        {
-            "facility_id": f.facility_id,
-            "facility_name": f.facility_name,
-            "facility_type": f.facility_type,
-            "capacity": str(f.capacity),  # ✅ `int` → `str` に変換
+@app.get("/facilities")
+def read_facilities(
+    facility_type: Optional[str] = Query(None, description="検索する施設のタイプ（完全一致）"),
+    location: Optional[str] = Query(None, description="検索する施設の場所（部分一致）"),
+    capacity: Optional[int] = Query(None, description="この人数以上のキャパシティ"),
+    limit: Optional[int] = Query(10, description="取得する件数（デフォルト10件）"),
+    offset: Optional[int] = Query(0, description="スキップする件数（デフォルト0件）"),
+    db: Session = Depends(get_db)
+):
+    """施設名・施設タイプ・場所・キャパシティで検索する（ページネーションあり）"""
+    sql_where = "WHERE 1=1"
+    params = {}
+
+    if facility_type:
+        sql_where += " AND facility_type = :facility_type"
+        params["facility_type"] = facility_type
+
+    if location:
+        sql_where += " AND location LIKE :location"
+        params["location"] = f"%{location}%"
+
+    if capacity:
+        sql_where += " AND capacity >= :capacity"
+        params["capacity"] = capacity
+
+    # **1. 件数を取得**
+    count_sql = f"SELECT COUNT(*) FROM m_company_facilities {sql_where}"
+    total_count = db.execute(text(count_sql), params).scalar()
+
+    # **2. データ取得**
+    sql = f"SELECT * FROM m_company_facilities {sql_where} LIMIT :limit OFFSET :offset"
+    params["limit"] = limit
+    params["offset"] = offset
+
+    logger.info(f"Executing SQL: {sql}")
+    logger.info(f"With parameters: {params}")
+
+    result = db.execute(text(sql), params).fetchall()
+
+    # **3. 結果がない場合**
+    if not result:
+        return {
+            "status": "success",
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
+            "message": "No facilities found matching the search criteria.",
+            "data": []
         }
-        for f in facilities
+
+    facilities = [
+        {
+            "facility_id": row[0],
+            "facility_name": row[1],
+            "facility_type": row[2],
+            "capacity": row[3],
+            "location": row[4],
+            "equipment": json.loads(row[5]) if isinstance(row[5], str) else row[5],
+            "management_type": row[6],
+            "external_id": row[7],
+            "created_at": row[8]
+        }
+        for row in result
     ]
+
+    return {
+        "status": "success",
+        "total_count": total_count, 
+        "limit": limit,
+        "offset": offset,
+        "data": facilities
+    }
+
 
 # 予約を処理するエンドポイント
 @app.post("/reservations", response_model=ReservationResponse)
